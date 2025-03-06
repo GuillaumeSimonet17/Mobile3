@@ -605,6 +605,12 @@ class _WeatherHomePageState extends State<WeatherHomePage>
 
       body: Stack(
         children: [
+          Positioned.fill(
+            child: Image.asset(
+              'assets/image/background2.jpg',
+              fit: BoxFit.cover,
+            ),
+          ),
           TabBarView(
             controller: _tabController,
             children: [
