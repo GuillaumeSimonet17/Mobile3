@@ -1,10 +1,11 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:weather_icons/weather_icons.dart';
+import 'package:intl/intl.dart';
+
 
 void main() {
   runApp(const WeatherApp());
@@ -111,10 +112,38 @@ class _WeatherHomePageState extends State<WeatherHomePage>
   String _country = '';
   String _region = '';
   String _currentWindSpeed = '';
+  String _currentWeatherCode = '';
   List<HourlyWeather> _dailyWeather = [];
   List<WeeklyWeather> _weeklyWeather = [];
 
   List<Map<String, String>> suggestions = [];
+
+  final Map<int, IconData> weatherIcons = {
+    0: WeatherIcons.day_sunny, // Ciel dégagé
+    1: WeatherIcons.cloud, // Partiellement nuageux
+    2: WeatherIcons.cloudy, // Nuageux
+    3: WeatherIcons.cloudy_windy, // Très nuageux
+    51: WeatherIcons.raindrop, // Bruine légère
+    53: WeatherIcons.rain, // Bruine modérée
+    55: WeatherIcons.rain_wind, // Bruine dense
+    61: WeatherIcons.showers, // Pluie légère
+    63: WeatherIcons.rain, // Pluie modérée
+    65: WeatherIcons.rain_wind, // Pluie forte
+    71: WeatherIcons.snow, // Neige légère
+    73: WeatherIcons.snowflake_cold, // Neige modérée
+    75: WeatherIcons.snow_wind, // Neige forte
+    80: WeatherIcons.showers, // Averses de pluie légères
+    81: WeatherIcons.rain, // Averses de pluie modérées
+    82: WeatherIcons.rain_wind, // Averses de pluie violentes
+    95: WeatherIcons.thunderstorm, // Orage
+  };
+
+  IconData getWeatherIcon(String weatherCode) {
+    num code = int.parse(weatherCode);
+    return weatherIcons[code] ?? WeatherIcons.na; // Icône par défaut si code inconnu
+  }
+
+
 
   @override
   void initState() {
@@ -146,16 +175,20 @@ class _WeatherHomePageState extends State<WeatherHomePage>
 
     try {
       if (coordinates == null) {
-        setState(() {
-          errorText = 'Location not found';
-          _searchController.clear();
-          suggestions.clear();
-        });
+        if (mounted) {
+          setState(() {
+            errorText = 'Location not found';
+            _searchController.clear();
+            suggestions.clear();
+          });
+        }
         return;
       } else {
-        setState(() {
-          errorText = '';
-        });
+        if (mounted) {
+          setState(() {
+            errorText = '';
+          });
+        }
       }
 
       if (coordinates["country"] != null &&
@@ -170,31 +203,36 @@ class _WeatherHomePageState extends State<WeatherHomePage>
         );
       }
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          _searchController.clear();
+          suggestions.clear();
+        });
+      }
+      return;
+    }
+    if (mounted) {
       setState(() {
+        _cityName = city;
+        _country = country;
+        _region = region;
+
+        errorText = '';
+
         _searchController.clear();
         suggestions.clear();
       });
-      return;
     }
-
-    setState(() {
-      _cityName = city;
-      _country = country;
-      _region = region;
-
-      errorText = '';
-
-      _searchController.clear();
-      suggestions.clear();
-    });
   }
 
   void _locationExe() async {
     if (!await _requestLocationPermission()) {
-      setState(() {
-        errorText =
-            'Geoloation is not available, please enable it in your App settings';
-      });
+      if (mounted) {
+        setState(() {
+          errorText =
+          'Geoloation is not available, please enable it in your App settings';
+        });
+      }
       return;
     }
 
@@ -204,14 +242,15 @@ class _WeatherHomePageState extends State<WeatherHomePage>
         position.longitude,
         position.latitude,
       );
-      setState(() {
-        errorText = '';
+      if (mounted) {
+        setState(() {
+          errorText = '';
 
-        _cityName = cityAndState[0];
-        _country = cityAndState[2];
-        _region = cityAndState[1];
-      });
-
+          _cityName = cityAndState[0];
+          _country = cityAndState[2];
+          _region = cityAndState[1];
+        });
+      }
       await fetchWeather(position.longitude, position.latitude);
     } catch (e) {
       print('Something went wrong');
@@ -223,9 +262,11 @@ class _WeatherHomePageState extends State<WeatherHomePage>
       await http.get(url);
       return true;
     } catch (e) {
-      setState(() {
-        errorText = 'API call failed';
-      });
+      if (mounted) {
+        setState(() {
+          errorText = 'API call failed';
+        });
+      }
       return false;
     }
   }
@@ -369,18 +410,20 @@ class _WeatherHomePageState extends State<WeatherHomePage>
                 .map((city) => city["admin1"].toString())
                 .toList()
                 .cast<String>();
-
-        setState(() {
-          suggestions =
-              List.generate(
-                cityNames.length,
-                (index) => {
-                  "city": cityNames[index],
-                  "country": countryNames[index],
-                  "region": regions[index],
-                },
-              ).take(5).toList(); // Limit the list to 5 items
-        });
+        if (mounted) {
+          setState(() {
+            suggestions =
+                List.generate(
+                  cityNames.length,
+                      (index) =>
+                  {
+                    "city": cityNames[index],
+                    "country": countryNames[index],
+                    "region": regions[index],
+                  },
+                ).take(5).toList(); // Limit the list to 5 items
+          });
+        }
       }
     } else {
       return null;
@@ -391,7 +434,7 @@ class _WeatherHomePageState extends State<WeatherHomePage>
     final url = Uri.parse(
       "https://api.open-meteo.com/v1/forecast?"
       "latitude=$latitude&longitude=$longitude"
-      "&current=temperature_2m,wind_speed_10m"
+      "&current=temperature_2m,wind_speed_10m,weather_code"
       "&hourly=temperature_2m,wind_speed_10m,weather_code",
     );
 
@@ -402,11 +445,12 @@ class _WeatherHomePageState extends State<WeatherHomePage>
     final response = await http.get(url);
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-
+      print( data['current']);
       String temperature =
           data['current']['temperature_2m'].toString() +
           data['current_units']['temperature_2m'];
       String windSpeed = data['current']['wind_speed_10m'].toString() + ' k/h';
+      String currentWeatherCode = data['current']['weather_code'].toString();
 
       List<DateTime> times =
           data['hourly']['time']
@@ -467,13 +511,15 @@ class _WeatherHomePageState extends State<WeatherHomePage>
               )
               .toList();
 
-      setState(() {
-        _currentWindSpeed = windSpeed;
-        _currentTemperature = temperature;
-        _dailyWeather = dailyWeather;
-        _weeklyWeather = weeklyWeather;
-      });
-
+      if (mounted) {
+        setState(() {
+          _currentWindSpeed = windSpeed;
+          _currentTemperature = temperature;
+          _dailyWeather = dailyWeather;
+          _weeklyWeather = weeklyWeather;
+          _currentWeatherCode = currentWeatherCode;
+        });
+      }
       return;
     } else {
       return;
@@ -487,31 +533,32 @@ class _WeatherHomePageState extends State<WeatherHomePage>
         if (errorText.isNotEmpty)
           Text(errorText, style: TextStyle(fontSize: 24, color: Colors.red))
         else ...[
-          Text(_cityName, style: TextStyle(fontSize: 24)),
-          Text(_region, style: TextStyle(fontSize: 24)),
-          Text(_country, style: TextStyle(fontSize: 24)),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _dailyWeather.length,
-              itemBuilder: (context, index) {
-                final hourData = _dailyWeather[index];
-                return ListTile(
-                  title: Text(
-                    '${hourData.time.hour.toString().padLeft(2, '0')}h',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  subtitle: Text(
-                    '${hourData.getWeatherDescription()} (${hourData.windSpeed.round()} km/h)',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                  trailing: Text(
-                    '${hourData.temperature.round()}°C',
-                    style: TextStyle(fontSize: 16),
-                  ),
-                );
-              },
+          if (_dailyWeather.isNotEmpty)
+            Text(_cityName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            Text(_region, style: TextStyle(fontSize: 20, color: Colors.grey[700])),
+            Text(_country, style: TextStyle(fontSize: 20, color: Colors.grey[700])),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _dailyWeather.length,
+                itemBuilder: (context, index) {
+                  final hourData = _dailyWeather[index];
+                  return ListTile(
+                    title: Text(
+                      '${hourData.time.hour.toString().padLeft(2, '0')}h',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                    subtitle: Text(
+                      '${hourData.getWeatherDescription()} (${hourData.windSpeed.round()} km/h)',
+                      style: TextStyle(fontSize: 14),
+                    ),
+                    trailing: Text(
+                      '${hourData.temperature.round()}°C',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ],
     );
@@ -524,34 +571,34 @@ class _WeatherHomePageState extends State<WeatherHomePage>
         if (errorText.isNotEmpty)
           Text(errorText, style: TextStyle(fontSize: 24, color: Colors.red))
         else ...[
-          Text(_cityName, style: TextStyle(fontSize: 24)),
-          Text(_region, style: TextStyle(fontSize: 24)),
-          Text(_country, style: TextStyle(fontSize: 24)),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _weeklyWeather.length,
-              itemBuilder: (context, index) {
-                final hourData = _weeklyWeather[index];
-                return ListTile(
-                  title: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '${hourData.time.year.toString().padLeft(2, '0')}-' +
-                            '${hourData.time.month.toString().padLeft(2, '0')}-' +
-                            '${hourData.time.day.toString().padLeft(2, '0')}',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                      Text(
-                        '${hourData.temperatureMin.round()}°C - ${hourData.temperatureMax.round()}°C',
-                        style: TextStyle(fontSize: 16),
-                      ),
-                    ],
-                  ),
-                );
-              },
+          if (_weeklyWeather.isNotEmpty)
+            Text(_cityName, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            Text(_region, style: TextStyle(fontSize: 20, color: Colors.grey[700])),
+            Text(_country, style: TextStyle(fontSize: 20, color: Colors.grey[700])),
+
+            Expanded(
+              child: ListView.builder(
+                itemCount: _weeklyWeather.length,
+                itemBuilder: (context, index) {
+                  final dayData = _weeklyWeather[index];
+                  return ListTile(
+                    title: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          DateFormat('EEEE').format(dayData.time), // Jour de la semaine
+                          style: TextStyle(fontSize: 16),
+                        ),
+                        Text(
+                          '${dayData.temperatureMin.round()}°C - ${dayData.temperatureMax.round()}°C',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
         ],
       ],
     );
@@ -559,16 +606,63 @@ class _WeatherHomePageState extends State<WeatherHomePage>
 
   Widget _buildTabCurrently() {
     return Column(
-      mainAxisAlignment: MainAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         if (errorText.isNotEmpty)
           Text(errorText, style: TextStyle(fontSize: 24, color: Colors.red))
         else ...[
-          Text(_cityName, style: TextStyle(fontSize: 24)),
-          Text(_region, style: TextStyle(fontSize: 24)),
-          Text(_country, style: TextStyle(fontSize: 24)),
-          Text(_currentTemperature, style: TextStyle(fontSize: 24)),
-          Text(_currentWindSpeed, style: TextStyle(fontSize: 24)),
+          if (_cityName.isNotEmpty && _country.isNotEmpty &&
+              _currentTemperature.isNotEmpty && _currentWindSpeed.isNotEmpty)
+            Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Section localisation
+              Text(
+                _cityName,
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+              Text(
+                '$_region, $_country',
+                style: TextStyle(
+                  fontSize: 18, // Plus petit pour la région et le pays
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[700],
+                ),
+              ),
+              SizedBox(height: 30),
+
+              Icon(
+                getWeatherIcon(_currentWeatherCode),
+                size: 60,
+                color: Colors.blueAccent,
+              ),
+              SizedBox(height: 8),
+              SizedBox(height: 26),
+              Text(
+                '$_currentTemperature',
+                style: TextStyle(
+                  fontSize: 42, // Très grand pour la température
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blueAccent, // Bleu pour représenter la météo
+                ),
+              ),
+              Text(
+                'Vent: $_currentWindSpeed',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.blueGrey, // Plus discret
+                ),
+              ),
+            ],
+          )
+          else ...[
+            SizedBox(height: 5,)
+          ]
         ],
       ],
     );
@@ -607,7 +701,7 @@ class _WeatherHomePageState extends State<WeatherHomePage>
         children: [
           Positioned.fill(
             child: Image.asset(
-              'assets/image/background2.jpg',
+              'assets/image/background.jpg',
               fit: BoxFit.cover,
             ),
           ),
@@ -626,8 +720,8 @@ class _WeatherHomePageState extends State<WeatherHomePage>
             child: Visibility(
               visible: suggestions.isNotEmpty,
               child: Container(
+                color: Colors.white,
                 constraints: BoxConstraints(maxHeight: 520),
-                // Limite la hauteur
                 child: ListView.builder(
                   shrinkWrap: true,
                   itemCount: suggestions.length,
@@ -644,16 +738,18 @@ class _WeatherHomePageState extends State<WeatherHomePage>
                           ),
                           onTap: () {
                             _searchExe(suggestions[index]['city']!);
-                            setState(() {
-                              suggestions.clear();
-                            });
+                            if (mounted) {
+                              setState(() {
+                                suggestions.clear();
+                              });
+                            }
                           },
                         ),
                         Divider(
-                          color: Colors.black, // Couleur de la bordure
-                          thickness: 1.0, // Épaisseur de la bordure
-                          indent: 0, // Décalage à gauche
-                          endIndent: 0, // Décalage à droite
+                          color: Colors.black,
+                          thickness: 1.0,
+                          indent: 0,
+                          endIndent: 0,
                         ),
                       ],
                     );
